@@ -1,48 +1,56 @@
 from waidle import *
 import random
-import pytest
+from pytest import raises
 
-a = WordleCorpus()
-a.prepare_corpus()
-
-minimum = 1000000000
-
-b = update_corpus('A', None, [1, 2, 3], a.corpus)
-print(len(b))
-for x in range(5):
-    print(random.choice(list(b)))
+a = Waidle("ORANGE")
+print(len(a.corpus.corpus))
 
 
+def test_check_char():
+    assert check_char("A", 0, "APPLE") == 2
+    assert check_char("A", 1, "APPLE") == 1
+    assert check_char("P", 1, "APPLE") == 2
+    assert check_char("P", 2, "APPLE") == 2
+    assert check_char("P", 3, "APPLE") == 1
+    assert check_char("Q", 1, "APPLE") == 0
+    assert check_char("A", 0, "APPLE", heuristic=(1, 5)) == 5
+    assert check_char("A", 1, "APPLE", heuristic=(3, 5)) == 3
+    with raises(IndexError):
+        check_char("A", 6, "APPLE")
 
-print(check_char('A', 1, 'APPLE') == 1,
-check_char('A', 0, 'APPLE') == 2,
-check_char('Z', 0, 'APPLE') == 0)
 
-print("RUNNING...")
-corpus_dict = dict()
-counter = 0
-for word in a.corpus:
-    counter += 1
-    score = 0
-    for test_word in a.corpus:
-        checked_chars = create_alphabet_dict()
-        for position, char in enumerate(word):
-            checked = check_char(char, position, test_word)
-            if checked[0]:
-                if checked[1] > checked_chars[char][1]:
-                    score += checked[0]
-                    checked_chars[char][1] += 1
-                    checked_chars[char][0] = checked[0]
-                elif checked[0] > checked_chars[char][0]:
-                    score = score - 1 + checked[0]
+def test_corpus_5():
+    a = Waidle("LEAFY")
+    c = a.corpus.corpus
+    assert len(c) == 9972
+    assert "BANANA" not in c
+    assert "APPLE" in c
+    assert "BGHBG" not in c
 
-    corpus_dict.update({word: score})
-    print(f"Completed word {counter} / {len(a.corpus)} - {word}: {score}")
 
-d = sorted(corpus_dict.items(), key=lambda item: item[1])
-print("FINISHED.")
+def test_corpus_6():
+    a = Waidle("ORANGE")
+    c = a.corpus.corpus
+    assert len(c) == 17464
+    assert "ORANGE" in c
+    assert "BANANA" in c
+    assert "APPLE" not in c
+    a.corpus.prepare_corpus(chars=7)
+    assert len(a.corpus.corpus) == 41178
+    assert "PRETEND" in c
 
-best = ("", 0)
-for i in a:
-    if corpus_dict[i] > best[1]:
-        best = (i, corpus_dict[i])
+
+def test_update_corpus():
+    a = Waidle("LEAFY")
+    c = a.corpus.update_corpus("A", [2], [])
+    assert "LEAFY" in c
+    assert "SPACE" in c
+    assert "TRACE" in c
+    assert "APPLE" not in c
+    c = a.corpus.update_corpus("P", [], [], counter=0)
+    assert "LEAFY" in c
+    assert "TRACE" in c
+    assert "SPACE" not in c
+    c = a.corpus.update_corpus("E", [], [4])
+    assert "LEAFY" in c
+    assert "TRACE" not in c

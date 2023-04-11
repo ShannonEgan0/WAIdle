@@ -22,16 +22,6 @@ def create_alphabet_dict():
     return {c: [0, 0] for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
 
 
-def update_corpus(char, positions, not_positions, corpus, counter=1):
-    char = char.upper()
-    for position in positions:
-        corpus = {word for word in corpus if word[position] == char}
-    for position in not_positions:
-        corpus = {word for word in corpus if word[position] != char and char in word}
-    corpus = {word for word in corpus if counter <= word.count(char)}
-    return corpus
-
-
 class WordleCorpus:
     def __init__(self):
         self.corpus = set()
@@ -42,38 +32,55 @@ class WordleCorpus:
             if i.isalpha() and len(i) == chars:
                 self.corpus.add(i.upper())
 
-    def qualify_corpus(self, heuristic=(1, 2)):
+    def update_corpus(self, char, positions, not_positions, counter=1):
+        char = char.upper()
+        for position in positions:
+            self.corpus = {word for word in self.corpus if word[position] == char}
+        for position in not_positions:
+            self.corpus = {word for word in self.corpus if word[position] != char and char in word}
+        self.corpus = {word for word in self.corpus if counter <= word.count(char)}
+        return self.corpus
+
+    def qualify_corpus(self, heuristic=(1, 2), save=True):
+        if heuristic[1] <= heuristic[0]:
+            raise ValueError("Heuristic is invalid, index 1 must be greater than index 0")
         print("Evaluating Corpus...")
         corpus_dict = dict()
         counter = 0
         for word in self.corpus:
             counter += 1
-            score = 0
+            score, match, exact = 0, 0, 0
             for test_word in self.corpus:
                 checked_chars = create_alphabet_dict()
                 for position, char in enumerate(word):
                     checked = check_char(char, position, test_word, heuristic)
                     if checked:
                         if test_word.count(char) > checked_chars[char][1]:
+                            match += 1
+                            if checked == heuristic[1]:
+                                exact += 1
                             score += checked
                             checked_chars[char][1] += 1
                             checked_chars[char][0] = checked
-                        elif test_word.count(char) > checked_chars[char][0]:
-                            score = score - 1 + checked
+                        elif checked > checked_chars[char][0]:
+                            score = score - heuristic[0] + checked
+                            exact += 1
 
-            corpus_dict.update({word: score})
+            corpus_dict.update({word: {"score": score, "match": match, "exact": exact}})
             print(f"Completed word {counter} / {len(self.corpus)} - {word}: {score}")
 
-        d = sorted(corpus_dict.items(), key=lambda item: item[1], reverse=True)
-        print("Saving qualified corpus to file...")
-        date = dt.datetime.now().date().strftime("%Y%m%d")
-        with open(f"Waidle Corpus ({len(d)} {date}).txt", 'w') as f:
-            writer = csv.DictWriter(f, ("Word", "Score"))
-            writer.writeheader()
-            counter = 0
-            for row in d:
-                counter += 1
-                writer.writerow({"Rank": counter, "Word": row[0], "Score": row[1]})
+        d = sorted(corpus_dict.items(), key=lambda item: item[1]["score"], reverse=True)
+        if save:
+            print("Saving qualified corpus to file...")
+            date = dt.datetime.now().date().strftime("%Y%m%d")
+            with open(f"Waidle Corpus ({len(d)} {date}).txt", 'w') as f:
+                writer = csv.DictWriter(f, ("Rank", "Word", "Score", "Match", "Exact"))
+                writer.writeheader()
+                counter = 0
+                for row in d:
+                    counter += 1
+                    writer.writerow({"Rank": counter, "Word": row[0], "Score": row[1]["score"],
+                                     "Match": row[1]["match"], "Exact": row[1]["exact"]})
 
         print("FINISHED.")
         return d
@@ -84,13 +91,20 @@ class Waidle:
         self.word = word.upper()
         self.corpus = WordleCorpus()
         self.corpus.prepare_corpus(chars=len(self.word))
-        self.corpus = self.corpus.corpus
         self.heuristic = heuristic
 
-        if self.word not in self.corpus:
+        if self.word not in self.corpus.corpus:
             raise KeyError("Word not recognized as valid word")
 
+    def check_guess(self, guess_word):
+        if guess_word == self.word:
+            print(f"{guess_word.upper()} is the correct answer!")
+            return True
+        else:
+            return False
+
     def guess(self, guess_word):
+        guess_word = guess_word.upper()
         result = {char: {"score": [], "pos": [], "count": 0} for char in guess_word}
         for pos, char in enumerate(guess_word):
             char_number = guess_word.count(char)
@@ -103,18 +117,18 @@ class Waidle:
             for x, s in enumerate(result[char]["score"]):
                 if s == 2:
                     result[char]["count"] -= 1
-                    self.corpus = update_corpus(char, [result[char]["pos"][x]], [], self.corpus)
+                    self.corpus.update_corpus(char, [result[char]["pos"][x]], [])
             for x, s in enumerate(result[char]["score"]):
                 if s == 1 and result[char]["count"] >= 1:
-                    self.corpus = update_corpus(char, [], [result[char]["pos"][x]], self.corpus,
-                                                counter=result[char]["count"])
+                    self.corpus.update_corpus(char, [], [result[char]["pos"][x]], counter=result[char]["count"])
                     # Need to recheck if this is redundant or if the previous section is redundant
                     result[char]["count"] -= 1
             for x, s in enumerate(result[char]["score"]):
                 if s == 0:
-                    self.corpus = self.corpus = {word for word in self.corpus if char not in word}
-        print(self.corpus)
-        print(len(self.corpus))
+                    self.corpus.corpus = {word for word in self.corpus.corpus if char not in word}
+        print(self.corpus.corpus)
+        print(len(self.corpus.corpus))
+        self.check_guess(guess_word)
 
 
 if __name__ == "__main__":
