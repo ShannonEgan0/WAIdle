@@ -1,0 +1,2 @@
+# WAIdle
+Wordle Solver
