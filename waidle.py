@@ -24,13 +24,14 @@ def create_alphabet_dict():
 
 class WordleCorpus:
     def __init__(self):
-        self.corpus = set()
+        self.corpus = dict()
 
     def prepare_corpus(self, chars=5):
         full_corpus = words.words()
+        self.corpus = dict()
         for i in full_corpus:
             if i.isalpha() and len(i) == chars:
-                self.corpus.add(i.upper())
+                self.corpus.update({i.upper(): {"score": 0, "match": 0, "exact": 0}})
 
     def update_corpus(self, char, positions, not_positions, counter=1):
         char = char.upper()
@@ -41,7 +42,7 @@ class WordleCorpus:
         self.corpus = {word for word in self.corpus if counter <= word.count(char)}
         return self.corpus
 
-    def qualify_corpus(self, heuristic=(1, 2), save=True):
+    def qualify_corpus(self, heuristic=(1, 2), save=False):
         if heuristic[1] <= heuristic[0]:
             raise ValueError("Heuristic is invalid, index 1 must be greater than index 0")
         print("Evaluating Corpus...")
@@ -69,25 +70,44 @@ class WordleCorpus:
             corpus_dict.update({word: {"score": score, "match": match, "exact": exact}})
             print(f"Completed word {counter} / {len(self.corpus)} - {word}: {score}")
 
+        self.corpus = corpus_dict.copy()
+
         d = sorted(corpus_dict.items(), key=lambda item: item[1]["score"], reverse=True)
         if save:
-            print("Saving qualified corpus to file...")
-            date = dt.datetime.now().date().strftime("%Y%m%d")
-            with open(f"Waidle Corpus ({len(d)} {date}).txt", 'w') as f:
-                writer = csv.DictWriter(f, ("Rank", "Word", "Score", "Match", "Exact"))
-                writer.writeheader()
-                counter = 0
-                for row in d:
-                    counter += 1
-                    writer.writerow({"Rank": counter, "Word": row[0], "Score": row[1]["score"],
-                                     "Match": row[1]["match"], "Exact": row[1]["exact"]})
+            self.save_corpus()
 
         print("FINISHED.")
         return d
 
+    def save_corpus(self, suffix="Waidle Corpus"):
+        d = sorted(self.corpus.items(), key=lambda item: item[1]["score"], reverse=True)
+        print("Saving qualified corpus to file...")
+        date = dt.datetime.now().date().strftime("%Y%m%d")
+        filename = f"{suffix} ({len(d)} {date}).txt"
+        with open(filename, 'w', newline='') as f:
+            writer = csv.DictWriter(f, ("Rank", "Word", "Score", "Match", "Exact"))
+            writer.writeheader()
+            counter = 0
+            for row in d:
+                counter += 1
+                writer.writerow({"Rank": counter, "Word": row[0], "Score": row[1]["score"],
+                                 "Match": row[1]["match"], "Exact": row[1]["exact"]})
+        print(f"File saved as {filename}.")
+
+    def load_corpus(self, filename):
+        corpus = dict()
+        with open(filename, 'r') as f:
+            reader = csv.DictReader(f, ("Rank", "Word", "Score", "Match", "Exact"))
+            next(reader, None)
+            for row in reader:
+                corpus.update({row["Word"]: {"score": float(row["Score"]),
+                                             "match": int(row["Match"]), "Exact": int(row["Exact"])}})
+        self.corpus = corpus
+        return corpus
+
 
 class Waidle:
-    def __init__(self, word, heuristic=(1, 2)):
+    def __init__(self, word, heuristic=(1, 1.5)):
         self.word = word.upper()
         self.corpus = WordleCorpus()
         self.corpus.prepare_corpus(chars=len(self.word))
@@ -114,12 +134,13 @@ class Waidle:
             result[char]["count"] = char_number
         print(result)
         for char in result:
+            # Issue remains here for multiple characters in guess vs result
             for x, s in enumerate(result[char]["score"]):
-                if s == 2:
+                if s == self.heuristic[1]:
                     result[char]["count"] -= 1
                     self.corpus.update_corpus(char, [result[char]["pos"][x]], [])
             for x, s in enumerate(result[char]["score"]):
-                if s == 1 and result[char]["count"] >= 1:
+                if s == self.heuristic[0] and result[char]["count"] >= 1:
                     self.corpus.update_corpus(char, [], [result[char]["pos"][x]], counter=result[char]["count"])
                     # Need to recheck if this is redundant or if the previous section is redundant
                     result[char]["count"] -= 1
@@ -130,7 +151,14 @@ class Waidle:
         print(len(self.corpus.corpus))
         self.check_guess(guess_word)
 
+    def recommend(self, number=1):
+        ordered = sorted(self.corpus.corpus.items(), key=lambda item: item[1]["score"], reverse=True)
+        return ordered[0:number]
+
 
 if __name__ == "__main__":
     main()
-    a = Waidle("LEAFY")
+    a = Waidle("QUALM")
+    a.corpus.load_corpus("Waidle Corpus (9972 20230411).txt")
+    a.guess("RAISE")
+    a.corpus.qualify_corpus()
