@@ -33,16 +33,16 @@ class WordleCorpus:
             if i.isalpha() and len(i) == chars:
                 self.corpus.update({i.upper(): {"score": 0, "match": 0, "exact": 0}})
 
-    def update_corpus(self, char, positions, not_positions, counter=1, exact=None):
+    # Should separate the positions and not_positions modes into multiple functions
+    # They are not currently used simultaneously, which may imply there could be a better design
+    # Needs to be clear, this function only gets used if a char does exist in the answer
+    def update_corpus(self, char, positions, not_positions, counter=1):
         char = char.upper()
         for position in positions:
             self.corpus = {word for word in self.corpus if word[position] == char}
         for position in not_positions:
             self.corpus = {word for word in self.corpus if word[position] != char and char in word}
-        if exact is None:
-            self.corpus = {word for word in self.corpus if counter <= word.count(char)}
-        else:
-            self.corpus = {word for word in self.corpus if counter == word.count(char)}
+        self.corpus = {word for word in self.corpus if counter <= word.count(char)}
         return self.corpus
 
     def remove_char_from_corpus(self, char):
