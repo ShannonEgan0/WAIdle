@@ -36,8 +36,8 @@ def test_corpus_6():
     assert "BANANA" in c
     assert "APPLE" not in c
     a.corpus.prepare_corpus(chars=7)
-    assert len(a.corpus.corpus) == 41178
-    assert "PRETEND" in c
+    assert len(a.corpus.corpus) == 23714
+    assert "PRETEND" in a.corpus.corpus
 
 
 def test_update_corpus():
@@ -47,10 +47,42 @@ def test_update_corpus():
     assert "SPACE" in c
     assert "TRACE" in c
     assert "APPLE" not in c
-    c = a.corpus.update_corpus("P", [], [], counter=0)
+    c = a.corpus.remove_char_from_corpus("P")
     assert "LEAFY" in c
     assert "TRACE" in c
     assert "SPACE" not in c
     c = a.corpus.update_corpus("E", [], [4])
     assert "LEAFY" in c
     assert "TRACE" not in c
+
+
+def test_guess_multiple_chars():
+    a = Waidle("APPLE")
+    a.guess("APCBN")
+    assert "APPLE" in a.corpus.corpus
+    a.guess("BAPCL")
+    assert "APPLE" in a.corpus.corpus
+    a.guess("BAPPV")
+    assert "APPLE" in a.corpus.corpus
+    a.guess("BAKLP")
+    assert "APPLE" in a.corpus.corpus
+    a.guess("AAJKL")
+    assert "APPLE" in a.corpus.corpus
+    a.guess("PAALE")
+    assert "APPLE" in a.corpus.corpus
+    a.guess("ALALA")
+    assert "APPLE" in a.corpus.corpus
+
+    a = Waidle("APPLE")
+    a.guess("POLAR")
+    assert "APPLE" in a.corpus.corpus
+    a.guess("PAPER")
+    assert "APPLE" in a.corpus.corpus
+
+    a = Waidle("APPLE")
+    a.guess("NNNAN")
+    assert "ALALA" in a.corpus.corpus
+    a.guess("NANAN")
+    assert "ABACA" not in a.corpus.corpus
+    assert "ALALA" not in a.corpus.corpus
+    assert "APPLE" in a.corpus.corpus

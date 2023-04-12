@@ -33,14 +33,24 @@ class WordleCorpus:
             if i.isalpha() and len(i) == chars:
                 self.corpus.update({i.upper(): {"score": 0, "match": 0, "exact": 0}})
 
-    def update_corpus(self, char, positions, not_positions, counter=1):
+    def update_corpus(self, char, positions, not_positions, counter=1, exact=None):
         char = char.upper()
         for position in positions:
             self.corpus = {word for word in self.corpus if word[position] == char}
         for position in not_positions:
             self.corpus = {word for word in self.corpus if word[position] != char and char in word}
-        self.corpus = {word for word in self.corpus if counter <= word.count(char)}
+        if exact is None:
+            self.corpus = {word for word in self.corpus if counter <= word.count(char)}
+        else:
+            self.corpus = {word for word in self.corpus if counter == word.count(char)}
         return self.corpus
+
+    def remove_char_from_corpus(self, char):
+        self.corpus = {word for word in self.corpus if char not in word}
+        return self.corpus
+
+    def remove_multiple_chars(self, char, counter):
+        self.corpus = {word for word in self.corpus if counter == word.count(char)}
 
     def qualify_corpus(self, heuristic=(1, 2), save=False):
         if heuristic[1] <= heuristic[0]:
@@ -112,7 +122,6 @@ class Waidle:
         self.corpus = WordleCorpus()
         self.corpus.prepare_corpus(chars=len(self.word))
         self.heuristic = heuristic
-
         if self.word not in self.corpus.corpus:
             raise KeyError("Word not recognized as valid word")
 
@@ -135,18 +144,20 @@ class Waidle:
         print(result)
         for char in result:
             # Issue remains here for multiple characters in guess vs result
+            word_char_count = self.word.count(char)
+            if result[char]["count"] > self.word.count(char):
+                self.corpus.remove_multiple_chars(char, word_char_count)
             for x, s in enumerate(result[char]["score"]):
                 if s == self.heuristic[1]:
                     result[char]["count"] -= 1
                     self.corpus.update_corpus(char, [result[char]["pos"][x]], [])
             for x, s in enumerate(result[char]["score"]):
                 if s == self.heuristic[0] and result[char]["count"] >= 1:
-                    self.corpus.update_corpus(char, [], [result[char]["pos"][x]], counter=result[char]["count"])
-                    # Need to recheck if this is redundant or if the previous section is redundant
                     result[char]["count"] -= 1
+                    self.corpus.update_corpus(char, [], [result[char]["pos"][x]], counter=result[char]["count"])
             for x, s in enumerate(result[char]["score"]):
                 if s == 0:
-                    self.corpus.corpus = {word for word in self.corpus.corpus if char not in word}
+                    self.corpus.remove_char_from_corpus(char)
         print(self.corpus.corpus)
         print(len(self.corpus.corpus))
         self.check_guess(guess_word)
@@ -158,7 +169,7 @@ class Waidle:
 
 if __name__ == "__main__":
     main()
-    a = Waidle("QUALM")
+    a = Waidle("BORAX")
     a.corpus.load_corpus("Waidle Corpus (9972 20230411).txt")
     a.guess("RAISE")
     a.corpus.qualify_corpus()
