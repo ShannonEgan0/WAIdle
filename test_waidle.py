@@ -80,6 +80,7 @@ def test_guess_multiple_chars():
     assert "APPLE" in a.corpus.corpus
 
     a = Waidle("APPLE")
+    a.corpus.prepare_corpus(freq_cutoff=0)
     a.guess("NNNAN")
     assert "ALALA" in a.corpus.corpus
     a.guess("NANAN")
