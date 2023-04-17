@@ -38,9 +38,9 @@ class WordleCorpus:
     def __init__(self):
         self.corpus = dict()
 
-    def prepare_corpus(self, chars=5, freq_cutoff=10e-06):
+    def prepare_corpus(self, word_list=words.words(), chars=5, freq_cutoff=2e-06):
         frequency_corpus = load_word_freq_dict(chars=chars)
-        full_corpus = words.words()
+        full_corpus = word_list
         self.corpus = dict()
         full_corpus = {i.upper() for i in full_corpus}
         for i in full_corpus:
@@ -165,6 +165,9 @@ class Waidle:
             result[char]["score"].append(score)
             result[char]["pos"].append(pos)
             result[char]["count"] = char_number
+        return result
+
+    def update_from_guess(self, result):
         for char in result:
             # Issue remains here for multiple characters in guess vs result
             word_char_count = self.word.count(char)
@@ -181,7 +184,6 @@ class Waidle:
             for x, s in enumerate(result[char]["score"]):
                 if s == 0:
                     self.corpus.remove_char_from_corpus(char)
-        self.check_guess(guess_word)
 
     def recommend(self, number=1):
         ordered = sorted(self.corpus.corpus.items(), key=lambda item: (item[1]["score"],
@@ -204,7 +206,7 @@ class Waidle:
                 for i in guessed:
                     print(f" -> {i}", end="")
                 return counter
-            self.guess(guess)
+            self.update_from_guess(self.guess(guess))
             self.corpus.qualify_corpus()
 
     def play(self):
@@ -230,8 +232,7 @@ class Waidle:
         return guess
 
     def test_setup(self):
-        w = Waidle()
-        word_list = w.corpus.corpus.keys()
+        word_list = self.corpus.corpus.keys()
         results = dict()
         distribution = dict()
         counter = 0
@@ -248,6 +249,19 @@ class Waidle:
             print()
             print(f"Completed word {counter} / {total}")
         return results, distribution
+
+
+class QWaidle:
+    def __init__(self, game=Waidle(), alpha=0.5, epsilon=0.1):
+        self.game = game
+        self.alpha = alpha
+        self.epsilon = epsilon
+
+    def update(self, old_state, action, new_state, reward):
+        pass
+
+    def get_q_value(self, state, action):
+        pass
 
 
 if __name__ == "__main__":
