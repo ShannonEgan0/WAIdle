@@ -5,11 +5,12 @@ import random
 
 
 def main():
-    pass
+    a = Waidle()
+    a.play()
 
 
 def check_char(char, position, word, heuristic=(1, 1.5)):
-    # Returns score for a char in a specific position
+    # Checks a char and position relative to a word, and returns a value based on the correlation
     if char in word:
         if word[position] == char:
             return heuristic[1]
@@ -24,6 +25,7 @@ def create_alphabet_dict():
 
 
 def load_word_freq_dict(filename="frequency-alpha-alldicts.txt", chars=5):
+    # Loads a corpus of tab spaced words with a frequency of occurrence from Google Ngrams
     with open(filename, 'r') as f:
         reader = csv.reader(f, delimiter=' ')
         new = []
@@ -34,11 +36,13 @@ def load_word_freq_dict(filename="frequency-alpha-alldicts.txt", chars=5):
     return new_dict
 
 
-class WordleCorpus:
+class WaidleCorpus:
+    # Waidle Corpus object
     def __init__(self):
         self.corpus = dict()
 
     def prepare_corpus(self, word_list=words.words(), chars=5, freq_cutoff=2e-06):
+        # Prepares corpus dictionary from a word list, drawing frequencies from load_word_freq_dict
         frequency_corpus = load_word_freq_dict(chars=chars)
         full_corpus = word_list
         self.corpus = dict()
@@ -48,10 +52,10 @@ class WordleCorpus:
                 if i.isalpha() and len(i) == chars and frequency_corpus[i] > freq_cutoff:
                     self.corpus.update({i: {"score": 0, "match": 0, "exact": 0, "frequency": frequency_corpus[i]}})
 
-    # Should separate the positions and not_positions modes into multiple functions
     # They are not currently used simultaneously, which may imply there could be a better design
     # Needs to be clear, this function only gets used if a char does exist in the answer
     def update_corpus(self, char, positions, not_positions, counter=1):
+        # Updates corpus to reflect possible answers eliminated by a character guess
         char = char.upper()
         for position in positions:
             self.corpus = {word: self.corpus[word] for word in self.corpus if word[position] == char}
@@ -61,13 +65,19 @@ class WordleCorpus:
         return self.corpus
 
     def remove_char_from_corpus(self, char):
+        # Removes all words in corpus that contain char
         self.corpus = {word: self.corpus[word] for word in self.corpus if char not in word}
         return self.corpus
 
     def remove_multiple_chars(self, char, counter):
+        # Removing all words that have more occurrences of a particular character than occur than counter
+        # Used in the instance of a word guess with multiple of the same char finding the number total
         self.corpus = {word: self.corpus[word] for word in self.corpus if counter == word.count(char)}
 
     def qualify_corpus(self, heuristic=(1, 1.5), save=False):
+        # Qualifies entire corpus based on maximax algorithm
+        # Checks every word in the corpus, and assigns it a score based on shared characters/positions with...
+        # Each other word in the corpus
         if heuristic[1] <= heuristic[0]:
             raise ValueError("Heuristic is invalid, index 1 must be greater than index 0")
         print("Evaluating Corpus...")
@@ -97,15 +107,15 @@ class WordleCorpus:
             print(f"Completed word {counter} / {len(self.corpus)} - {word}: {score}", self.corpus[word]["frequency"])
 
         self.corpus = corpus_dict.copy()
-
-        d = sorted(corpus_dict.items(), key=lambda item: item[1]["score"], reverse=True)
+        corpus_sorted = sorted(corpus_dict.items(), key=lambda item: item[1]["score"], reverse=True)
         if save:
             self.save_corpus()
 
         print("FINISHED.")
-        return d
+        return corpus_sorted
 
     def save_corpus(self, suffix="Waidle Corpus"):
+        # Saves a qualified corpus to file with prescribed suffix for later reference
         d = sorted(self.corpus.items(), key=lambda item: item[1]["score"], reverse=True)
         print("Saving qualified corpus to file...")
         date = dt.datetime.now().date().strftime("%Y%m%d")
@@ -122,6 +132,7 @@ class WordleCorpus:
         print(f"File saved as {filename}.")
 
     def load_corpus(self, filename):
+        # Re-loads a qualified corpus for reference to reduce processing time
         corpus = dict()
         with open(filename, 'r') as f:
             reader = csv.DictReader(f, ("Rank", "Word", "Score", "Match", "Exact", "Frequency"))
@@ -134,8 +145,12 @@ class WordleCorpus:
 
 
 class Waidle:
+    # Main Waidle game object
     def __init__(self, word=None, heuristic=(1, 1.5), chars=5):
-        self.corpus = WordleCorpus()
+        # Initializes with a WaidleCorpus object. If word is left None, a random word from the corpus is selected.
+        # If chars is left as 5, the randomly selected word will be of length 5
+        # chars will be ignored if a word is specified
+        self.corpus = WaidleCorpus()
         self.chars = chars
         if word is None:
             self.corpus.prepare_corpus(chars=chars)
@@ -150,6 +165,7 @@ class Waidle:
         self.heuristic = heuristic
 
     def check_guess(self, guess_word):
+        # Checks whether a guess is the correct answer
         if guess_word == self.word:
             print(f"{guess_word.upper()} is the correct answer!")
             return True
@@ -157,6 +173,8 @@ class Waidle:
             return False
 
     def guess(self, guess_word):
+        # Performa guess in the sense of the game
+        # Checks each char in word for correctness, and then stores these for updating the corpus
         guess_word = guess_word.upper()
         result = {char: {"score": [], "pos": [], "count": 0} for char in guess_word}
         for pos, char in enumerate(guess_word):
@@ -168,8 +186,8 @@ class Waidle:
         return result
 
     def update_from_guess(self, result):
+        # Updates corpus based on a guess result (ie. character correctness and position)
         for char in result:
-            # Issue remains here for multiple characters in guess vs result
             word_char_count = self.word.count(char)
             if result[char]["count"] > self.word.count(char):
                 self.corpus.remove_multiple_chars(char, word_char_count)
@@ -186,11 +204,13 @@ class Waidle:
                     self.corpus.remove_char_from_corpus(char)
 
     def recommend(self, number=1):
+        # Recommends a list of suggested gyesses of length == number based on first score, then frequency
         ordered = sorted(self.corpus.corpus.items(), key=lambda item: (item[1]["score"],
                                                                        item[1]["frequency"]), reverse=True)
         return ordered[0:number]
 
     def solve(self, starting_qualification_file="Waidle Corpus (4203 20230413).txt"):
+        # Solves a game by guesses recommended guesses until the correct guess is found
         if starting_qualification_file:
             self.corpus.load_corpus(starting_qualification_file)
         else:
@@ -205,11 +225,13 @@ class Waidle:
                 print(f"SOLVED with the answer {guess} in {counter} guesses!")
                 for i in guessed:
                     print(f" -> {i}", end="")
+                print()
                 return counter
             self.update_from_guess(self.guess(guess))
             self.corpus.qualify_corpus()
 
     def play(self):
+        # Allows a human to play a WAIdle game directly in the console
         guess = self.make_guess()
         while not self.check_guess(guess):
             for x, char in enumerate(guess):
@@ -225,6 +247,7 @@ class Waidle:
             guess = self.make_guess()
 
     def make_guess(self):
+        # Calls for a human guess in a game
         guess = input("Enter your guess: ").upper()
         while len(guess) != self.chars:
             print(f"Incorrect guess, must be {self.chars} characters long.")
@@ -232,6 +255,8 @@ class Waidle:
         return guess
 
     def test_setup(self):
+        # Tests a game of WAIdle for each word in a corpus, to assess effectiveness of the algorithm
+        # Takes a long time to perform, especially with a larger corpus: O(n**2)
         word_list = self.corpus.corpus.keys()
         results = dict()
         distribution = dict()
@@ -252,6 +277,7 @@ class Waidle:
 
 
 class QWaidle:
+    # Starting to assemble the beones of a reinforcment learning approach to solving a game
     def __init__(self, game=Waidle(), alpha=0.5, epsilon=0.1):
         self.game = game
         self.alpha = alpha
@@ -266,4 +292,3 @@ class QWaidle:
 
 if __name__ == "__main__":
     main()
-    a = Waidle()
