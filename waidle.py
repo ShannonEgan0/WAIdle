@@ -187,6 +187,7 @@ class Waidle:
 
     def update_from_guess(self, result):
         # Updates corpus based on a guess result (ie. character correctness and position)
+        # This needs to be optimized, it got really messy when dealing with multiple characters, and took some damage
         for char in result:
             word_char_count = self.word.count(char)
             if result[char]["count"] > self.word.count(char):
