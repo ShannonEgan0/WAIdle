@@ -86,3 +86,7 @@ def test_guess_multiple_chars():
     assert "ABACA" not in a.corpus.corpus
     assert "ALALA" not in a.corpus.corpus
     assert "APPLE" in a.corpus.corpus
+
+    a = Waidle("DIMER")
+    a.update_from_guess(a.guess("REEVE"))
+    assert "DIMER" in a.corpus.corpus

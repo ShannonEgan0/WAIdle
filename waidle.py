@@ -2,11 +2,11 @@ from nltk.corpus import words
 import csv
 import datetime as dt
 import random
+import copy
 
 
 def main():
-    a = Waidle()
-    a.play()
+    pass
 
 
 def check_char(char, position, word, heuristic=(1, 1.5)):
@@ -36,6 +36,8 @@ def load_word_freq_dict(filename="frequency-alpha-alldicts.txt", chars=5):
     return new_dict
 
 
+# For performance, need to adjust this so that a qualification file can be used from default at creation of an object
+# Rather than running prepare corpus on initialization
 class WaidleCorpus:
     # Waidle Corpus object
     def __init__(self):
@@ -56,12 +58,13 @@ class WaidleCorpus:
     # Needs to be clear, this function only gets used if a char does exist in the answer
     def update_corpus(self, char, positions, not_positions, counter=1):
         # Updates corpus to reflect possible answers eliminated by a character guess
+        # THERE IS STILL AN ISSUE, WHERE A WORD WITH 3 OF THE SAME CHAR MAY REDUCE CORPUS TO 0
+        # SEEMS TO BE ONLY WHEN THERE IS AT LEAST 1 CHAR OF THE SAME IN THE TARGET WORD
         char = char.upper()
         for position in positions:
             self.corpus = {word: self.corpus[word] for word in self.corpus if word[position] == char}
         for position in not_positions:
             self.corpus = {word: self.corpus[word] for word in self.corpus if word[position] != char and char in word}
-        self.corpus = {word: self.corpus[word] for word in self.corpus if counter <= word.count(char)}
         return self.corpus
 
     def remove_char_from_corpus(self, char):
@@ -72,6 +75,7 @@ class WaidleCorpus:
     def remove_multiple_chars(self, char, counter):
         # Removing all words that have more occurrences of a particular character than occur than counter
         # Used in the instance of a word guess with multiple of the same char finding the number total
+        print(f"Char: {char}, Counter: {counter}")
         self.corpus = {word: self.corpus[word] for word in self.corpus if counter == word.count(char)}
 
     def qualify_corpus(self, heuristic=(1, 1.5), save=False):
@@ -186,11 +190,12 @@ class Waidle:
         return result
 
     def update_from_guess(self, result):
-        # Updates corpus based on a guess result (ie. character correctness and position)
+        # Updates corpus based on a guess result (i.e. character correctness and position)
         # This needs to be optimized, it got really messy when dealing with multiple characters, and took some damage
         for char in result:
             word_char_count = self.word.count(char)
-            if result[char]["count"] > self.word.count(char):
+            if result[char]["count"] > word_char_count:
+                print("?", char)
                 self.corpus.remove_multiple_chars(char, word_char_count)
             for x, s in enumerate(result[char]["score"]):
                 if s == self.heuristic[1]:
@@ -198,8 +203,10 @@ class Waidle:
                     self.corpus.update_corpus(char, [result[char]["pos"][x]], [])
             for x, s in enumerate(result[char]["score"]):
                 if s == self.heuristic[0] and result[char]["count"] >= 1:
+                    print(s, result[char]["count"])
                     result[char]["count"] -= 1
                     self.corpus.update_corpus(char, [], [result[char]["pos"][x]], counter=result[char]["count"])
+            # This may be redundant compared to remove multiple chars
             for x, s in enumerate(result[char]["score"]):
                 if s == 0:
                     self.corpus.remove_char_from_corpus(char)
@@ -283,13 +290,72 @@ class QWaidle:
         self.game = game
         self.alpha = alpha
         self.epsilon = epsilon
+        self.state_dict = dict()
+        self.create_new_state(self.game.corpus.corpus)
 
-    def update(self, old_state, action, new_state, reward):
-        pass
+    def sort_state(self, state):
+        return tuple(sorted(state.keys()))
 
-    def get_q_value(self, state, action):
-        pass
+    def create_new_state(self, new_state):
+        # Produces dictionary with 1 key, the initial state, with an action for each word, with a value
+        # This dictionary will be updated with each new state
+        d = self.sort_state(new_state)
+        di = {word: 0 for word in d}
+        self.state_dict.update({d: di})
+
+    def update(self, old_state, word, new_state, reward):
+        old = self.get_q_value(old_state, word)
+        best_future = self.best_future_reward(new_state)
+        self.update_q_value(old_state, word, old, reward, best_future)
+
+    def get_q_value(self, state, word):
+        if state in self.state_dict:
+            return self.state_dict[state][word]
+        else:
+            return 0
+
+    def best_future_reward(self, state):
+        if len(state) == 0:
+            return 0
+        q_options = [self.get_q_value(state, word) for word in state]
+        return max(q_options)
+
+    def update_q_value(self, state, word, old_q, reward, future_rewards):
+
+        d = tuple(sorted(state.keys()))
+        self.state_dict[d][word] = old_q + self.alpha * (reward + future_rewards - old_q)
+
+    def choose_action(self, state, epsilon=True):
+        if state in self.state_dict:
+            options = self.state_dict[state]
+        else:
+            self.create_new_state(state)
+            options = self.state_dict[state]
+        sorted(options, key=lambda item: item[1])
+        if epsilon:
+            random_move = random.choices((False, True), (1 - self.epsilon, self.epsilon))
+            if random_move:
+                return random.choice(tuple(options))
+        return max(options, key=lambda item: item[1])
+
+    def train(self, n):
+        self.game.corpus.prepare_corpus()
+        corp = copy.copy(self.game.corpus)
+        for x in range(n):
+            guess = self.choose_action(self.sort_state(self.game.corpus.corpus))
+            c = 0
+            while not self.game.check_guess(guess):
+                print(guess, self.game.word)
+                c += 1
+                r = self.game.guess(guess)
+                self.game.update_from_guess(r)
+                self.create_new_state(self.game.corpus.corpus)
+                guess = self.choose_action(self.sort_state(self.game.corpus.corpus))
+            self.game.corpus = copy.copy(corp)
 
 
 if __name__ == "__main__":
     main()
+    a = Waidle("DIMER")
+    a.update_from_guess(a.guess("REEVE"))
+    print(a.corpus.corpus)
