@@ -56,10 +56,8 @@ class WaidleCorpus:
 
     # They are not currently used simultaneously, which may imply there could be a better design
     # Needs to be clear, this function only gets used if a char does exist in the answer
-    def update_corpus(self, char, positions, not_positions, counter=1):
+    def update_corpus(self, char, positions, not_positions):
         # Updates corpus to reflect possible answers eliminated by a character guess
-        # THERE IS STILL AN ISSUE, WHERE A WORD WITH 3 OF THE SAME CHAR MAY REDUCE CORPUS TO 0
-        # SEEMS TO BE ONLY WHEN THERE IS AT LEAST 1 CHAR OF THE SAME IN THE TARGET WORD
         char = char.upper()
         for position in positions:
             self.corpus = {word: self.corpus[word] for word in self.corpus if word[position] == char}
@@ -67,15 +65,15 @@ class WaidleCorpus:
             self.corpus = {word: self.corpus[word] for word in self.corpus if word[position] != char and char in word}
         return self.corpus
 
-    def remove_char_from_corpus(self, char):
-        # Removes all words in corpus that contain char
-        self.corpus = {word: self.corpus[word] for word in self.corpus if char not in word}
+    def multiple_chars(self, char, counter):
+        # This is the case of multiple of a character in a word, but less than or equal to the answer word
+        # So it remains that there could be more characters in the word
+        self.corpus = {word: self.corpus[word] for word in self.corpus if counter <= word.count(char)}
         return self.corpus
 
-    def remove_multiple_chars(self, char, counter):
+    def excess_chars(self, char, counter):
         # Removing all words that have more occurrences of a particular character than occur than counter
         # Used in the instance of a word guess with multiple of the same char finding the number total
-        print(f"Char: {char}, Counter: {counter}")
         self.corpus = {word: self.corpus[word] for word in self.corpus if counter == word.count(char)}
 
     def qualify_corpus(self, heuristic=(1, 1.5), save=False):
@@ -160,13 +158,16 @@ class Waidle:
             self.corpus.prepare_corpus(chars=chars)
             self.word = random.choice(list(self.corpus.corpus.keys()))
             while self.corpus.corpus[self.word]["frequency"] < 60e-06:
-                self.word = random.choice(list(self.corpus.corpus.keys()))
+                self.randomize_word()
         else:
             self.word = word.upper()
             self.corpus.prepare_corpus(chars=len(self.word))
             if self.word not in self.corpus.corpus:
                 raise KeyError("Word not recognized as valid word")
         self.heuristic = heuristic
+
+    def randomize_word(self):
+        self.word = random.choice(list(self.corpus.corpus.keys()))
 
     def check_guess(self, guess_word):
         # Checks whether a guess is the correct answer
@@ -195,21 +196,14 @@ class Waidle:
         for char in result:
             word_char_count = self.word.count(char)
             if result[char]["count"] > word_char_count:
-                print("?", char)
-                self.corpus.remove_multiple_chars(char, word_char_count)
+                self.corpus.excess_chars(char, word_char_count)
+            elif result[char]["count"] <= word_char_count:
+                self.corpus.multiple_chars(char, word_char_count)
             for x, s in enumerate(result[char]["score"]):
                 if s == self.heuristic[1]:
-                    result[char]["count"] -= 1
                     self.corpus.update_corpus(char, [result[char]["pos"][x]], [])
-            for x, s in enumerate(result[char]["score"]):
-                if s == self.heuristic[0] and result[char]["count"] >= 1:
-                    print(s, result[char]["count"])
-                    result[char]["count"] -= 1
-                    self.corpus.update_corpus(char, [], [result[char]["pos"][x]], counter=result[char]["count"])
-            # This may be redundant compared to remove multiple chars
-            for x, s in enumerate(result[char]["score"]):
-                if s == 0:
-                    self.corpus.remove_char_from_corpus(char)
+                elif s == self.heuristic[0] and result[char]["count"] >= 1:
+                    self.corpus.update_corpus(char, [], [result[char]["pos"][x]])
 
     def recommend(self, number=1):
         # Recommends a list of suggested gyesses of length == number based on first score, then frequency
@@ -279,8 +273,7 @@ class Waidle:
             else:
                 distribution.update({c: 1})
             results.update({word: c})
-            print()
-            print(f"Completed word {counter} / {total}")
+            print(f"\nCompleted word {counter} / {total}")
         return results, distribution
 
 
@@ -293,7 +286,8 @@ class QWaidle:
         self.state_dict = dict()
         self.create_new_state(self.game.corpus.corpus)
 
-    def sort_state(self, state):
+    @staticmethod
+    def sort_state(state):
         return tuple(sorted(state.keys()))
 
     def create_new_state(self, new_state):
@@ -321,7 +315,6 @@ class QWaidle:
         return max(q_options)
 
     def update_q_value(self, state, word, old_q, reward, future_rewards):
-
         d = tuple(sorted(state.keys()))
         self.state_dict[d][word] = old_q + self.alpha * (reward + future_rewards - old_q)
 
@@ -341,21 +334,25 @@ class QWaidle:
     def train(self, n):
         self.game.corpus.prepare_corpus()
         corp = copy.copy(self.game.corpus)
+        c = 1
         for x in range(n):
             guess = self.choose_action(self.sort_state(self.game.corpus.corpus))
-            c = 0
             while not self.game.check_guess(guess):
-                print(guess, self.game.word)
-                c += 1
+                #print(guess, self.game.word)
                 r = self.game.guess(guess)
+                c += 1
                 self.game.update_from_guess(r)
                 self.create_new_state(self.game.corpus.corpus)
                 guess = self.choose_action(self.sort_state(self.game.corpus.corpus))
             self.game.corpus = copy.copy(corp)
+            self.game.randomize_word()
+        print(c)
 
 
 if __name__ == "__main__":
     main()
-    a = Waidle("DIMER")
-    a.update_from_guess(a.guess("REEVE"))
-    print(a.corpus.corpus)
+    a = Waidle("KAYAK")
+    a.solve()
+    #a = QWaidle()
+    #a.train(100000)
+    #print("DONE")
