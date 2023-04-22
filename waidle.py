@@ -4,6 +4,8 @@ import datetime as dt
 import random
 import copy
 from datetime import datetime
+from requests import get
+import re
 
 
 def main():
@@ -37,6 +39,14 @@ def load_word_freq_dict(filename="frequency-alpha-alldicts.txt", chars=5):
     return new_dict
 
 
+def source_wordle_list() -> object:
+    url = "https://www.nytimes.com/games-assets/v2/wordle.1ddd50e23d5bc72353ab.js"
+    r = get(url).text
+    r = re.search(r'zymic",".*?]', r).group()[7:-1]
+    r = r.replace('"', '').split(",")
+    return r
+
+
 # For performance, need to adjust this so that a qualification file can be used from default at creation of an object
 # Rather than running prepare corpus on initialization
 class WaidleCorpus:
@@ -44,7 +54,7 @@ class WaidleCorpus:
     def __init__(self):
         self.corpus = dict()
 
-    def prepare_corpus(self, word_list=words.words(), chars=5, freq_cutoff=2e-06):
+    def prepare_corpus(self, word_list=words.words(), chars=5, freq_cutoff=2e-06, curate=False):
         # Prepares corpus dictionary from a word list, drawing frequencies from load_word_freq_dict
         frequency_corpus = load_word_freq_dict(chars=chars)
         full_corpus = word_list
@@ -53,6 +63,9 @@ class WaidleCorpus:
             if i in frequency_corpus:
                 if i.isalpha() and len(i) == chars and frequency_corpus[i] > freq_cutoff:
                     self.corpus.update({i: {"score": 0, "match": 0, "exact": 0, "frequency": frequency_corpus[i]}})
+            elif not curate:
+                if i.isalpha() and len(i) == chars:
+                    self.corpus.update({i: {"score": 0, "match": 0, "exact": 0, "frequency": 0}})
 
     # They are not currently used simultaneously, which may imply there could be a better design
     # Needs to be clear, this function only gets used if a char does exist in the answer
@@ -133,7 +146,7 @@ class WaidleCorpus:
                                  "Frequency": row[1]["frequency"]})
         print(f"File saved as {filename}.")
 
-    def load_corpus(self, filename):
+    def load_corpus(self, filename, chars=5):
         # Re-loads a qualified corpus for reference to reduce processing time
         corpus = dict()
         with open(filename, 'r') as f:
@@ -142,26 +155,36 @@ class WaidleCorpus:
             for row in reader:
                 corpus.update({row["Word"]: {"score": float(row["Score"]), "match": int(row["Match"]),
                                              "exact": int(row["Exact"]), "frequency": float(row["Frequency"])}})
+        file_word_length = len(list(corpus.keys())[0])
+        if file_word_length != chars:
+            raise ImportError(f"File contains word of length {file_word_length}, not {chars}. Please try a different"
+                              f"file, or a different word.")
         self.corpus = corpus
         return corpus
 
 
 class Waidle:
     # Main Waidle game object
-    def __init__(self, word=None, heuristic=(1, 1.5), chars=5):
+    def __init__(self, word=None, heuristic=(1, 1.5), chars=5, file=None, word_list=source_wordle_list()):
         # Initializes with a WaidleCorpus object. If word is left None, a random word from the corpus is selected.
         # If chars is left as 5, the randomly selected word will be of length 5
         # chars will be ignored if a word is specified
         self.corpus = WaidleCorpus()
         self.chars = chars
         if word is None:
-            self.corpus.prepare_corpus(chars=chars)
-            self.word = random.choice(list(self.corpus.corpus.keys()))
+            if not file:
+                self.corpus.prepare_corpus(chars=chars, word_list=word_list)
+            else:
+                self.corpus.load_corpus(file, chars=chars)
+            self.randomize_word()
             while self.corpus.corpus[self.word]["frequency"] < 60e-06:
                 self.randomize_word()
         else:
             self.word = word.upper()
-            self.corpus.prepare_corpus(chars=len(self.word))
+            if not file:
+                self.corpus.prepare_corpus(chars=len(self.word), word_list=word_list)
+            else:
+                self.corpus.load_corpus(file, chars=len(self.word))
             if self.word not in self.corpus.corpus:
                 raise KeyError("Word not recognized as valid word")
         self.heuristic = heuristic
@@ -336,12 +359,13 @@ class QWaidle:
         progress_increment = n / 100
         percent = 0
         corp = copy.copy(self.game.corpus)
+        t0 = datetime.now()
+        print("Training Started...")
         for x in range(n):
             c = 1
             state = self.sort_state(self.game.corpus.corpus)
             self.create_new_state(state)
             guess = self.choose_action(state)
-
             while not self.game.check_guess(guess, printout=False):
                 c += 1
                 old_state = state
@@ -361,27 +385,24 @@ class QWaidle:
             self.update(state, guess, new_state, reward)
             self.game.corpus = copy.copy(corp)
             self.game.randomize_word()
-            if n % progress_increment == 0:
+            if x % progress_increment == 0:
                 percent += 1
-                print(f"Training {x} / n - {percent}% Complete")
-
-    def play(self):
-        def recommend():
-            p = list(self.state_dict[self.sort_state(self.game.corpus.corpus)].items())
-            return max(p, key=lambda item: item[1])
+                print(f"Training {x} / {n} - {percent}% Complete")
+        td = datetime.now() - t0
+        print(f"Training completed in {td}")
 
 
 if __name__ == "__main__":
     main()
-    #a = Waidle("KAYAK")
-    #a.solve()
+    a = Waidle("BROKE")
+    a.solve()
+
+    """
     a = QWaidle()
-    t0 = datetime.now()
-    print("Training...")
-    a.train(2000000)
+
+    a.train(10000)
     print("DONE")
-    t1 = datetime.now()
-    print(t1 - t0)
     b = list(sorted(a.state_dict))
     c = a.state_dict[b[1]].items()
     sorted(c, key=lambda item: item[1])
+    """
