@@ -3,6 +3,7 @@ import csv
 import datetime as dt
 import random
 import copy
+from datetime import datetime
 
 
 def main():
@@ -47,7 +48,6 @@ class WaidleCorpus:
         # Prepares corpus dictionary from a word list, drawing frequencies from load_word_freq_dict
         frequency_corpus = load_word_freq_dict(chars=chars)
         full_corpus = word_list
-        self.corpus = dict()
         full_corpus = {i.upper() for i in full_corpus}
         for i in full_corpus:
             if i in frequency_corpus:
@@ -169,10 +169,11 @@ class Waidle:
     def randomize_word(self):
         self.word = random.choice(list(self.corpus.corpus.keys()))
 
-    def check_guess(self, guess_word):
+    def check_guess(self, guess_word, printout=True):
         # Checks whether a guess is the correct answer
         if guess_word == self.word:
-            print(f"{guess_word.upper()} is the correct answer!")
+            if printout:
+                print(f"{guess_word.upper()} is the correct answer!")
             return True
         else:
             return False
@@ -279,12 +280,13 @@ class Waidle:
 
 class QWaidle:
     # Starting to assemble the beones of a reinforcment learning approach to solving a game
-    def __init__(self, game=Waidle(), alpha=0.5, epsilon=0.1):
+    def __init__(self, game=Waidle(), alpha=0.5, epsilon=0.3, gamma=0.1):
         self.game = game
         self.alpha = alpha
         self.epsilon = epsilon
+        self.gamma = gamma
         self.state_dict = dict()
-        self.create_new_state(self.game.corpus.corpus)
+        self.create_new_state(self.sort_state(self.game.corpus.corpus))
 
     @staticmethod
     def sort_state(state):
@@ -293,9 +295,9 @@ class QWaidle:
     def create_new_state(self, new_state):
         # Produces dictionary with 1 key, the initial state, with an action for each word, with a value
         # This dictionary will be updated with each new state
-        d = self.sort_state(new_state)
-        di = {word: 0 for word in d}
-        self.state_dict.update({d: di})
+        if new_state not in self.state_dict:
+            di = {word: 0 for word in new_state}
+            self.state_dict.update({new_state: di})
 
     def update(self, old_state, word, new_state, reward):
         old = self.get_q_value(old_state, word)
@@ -315,8 +317,7 @@ class QWaidle:
         return max(q_options)
 
     def update_q_value(self, state, word, old_q, reward, future_rewards):
-        d = tuple(sorted(state.keys()))
-        self.state_dict[d][word] = old_q + self.alpha * (reward + future_rewards - old_q)
+        self.state_dict[state][word] = old_q + self.alpha * (reward + future_rewards - old_q)
 
     def choose_action(self, state, epsilon=True):
         if state in self.state_dict:
@@ -332,27 +333,55 @@ class QWaidle:
         return max(options, key=lambda item: item[1])
 
     def train(self, n):
-        self.game.corpus.prepare_corpus()
+        progress_increment = n / 100
+        percent = 0
         corp = copy.copy(self.game.corpus)
-        c = 1
         for x in range(n):
-            guess = self.choose_action(self.sort_state(self.game.corpus.corpus))
-            while not self.game.check_guess(guess):
-                #print(guess, self.game.word)
-                r = self.game.guess(guess)
+            c = 1
+            state = self.sort_state(self.game.corpus.corpus)
+            self.create_new_state(state)
+            guess = self.choose_action(state)
+
+            while not self.game.check_guess(guess, printout=False):
                 c += 1
-                self.game.update_from_guess(r)
-                self.create_new_state(self.game.corpus.corpus)
-                guess = self.choose_action(self.sort_state(self.game.corpus.corpus))
+                old_state = state
+                # print(guess, self.game.word)
+                self.game.update_from_guess(self.game.guess(guess))
+                state = self.sort_state(self.game.corpus.corpus)
+                self.create_new_state(state)
+                self.update(old_state, guess, state, 0)
+                guess = self.choose_action(state)
+
+            new_state = self.sort_state(self.game.corpus.corpus)
+            self.create_new_state(new_state)
+            if c <= 6:
+                reward = 1
+            else:
+                reward = -1
+            self.update(state, guess, new_state, reward)
             self.game.corpus = copy.copy(corp)
             self.game.randomize_word()
-        print(c)
+            if n % progress_increment == 0:
+                percent += 1
+                print(f"Training {x} / n - {percent}% Complete")
+
+    def play(self):
+        def recommend():
+            p = list(self.state_dict[self.sort_state(self.game.corpus.corpus)].items())
+            return max(p, key=lambda item: item[1])
 
 
 if __name__ == "__main__":
     main()
-    a = Waidle("KAYAK")
-    a.solve()
-    #a = QWaidle()
-    #a.train(100000)
-    #print("DONE")
+    #a = Waidle("KAYAK")
+    #a.solve()
+    a = QWaidle()
+    t0 = datetime.now()
+    print("Training...")
+    a.train(2000000)
+    print("DONE")
+    t1 = datetime.now()
+    print(t1 - t0)
+    b = list(sorted(a.state_dict))
+    c = a.state_dict[b[1]].items()
+    sorted(c, key=lambda item: item[1])
