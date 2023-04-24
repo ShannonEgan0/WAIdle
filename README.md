@@ -2,24 +2,35 @@
 
 -- WORK IN PROGRESS --
 
-AI for prioritising wordle words with manageable heuristics to solve a general wordle format game for any particular 
-word as efficiently as possible. This is functions fluidly for any particular 
+#### External Libraries required:    
+    requests
+    nltk
+    matplotlib
 
-Algorithmically WAIdle uses a maximax model to select word choices that minimize the possible word list by the greatest 
+AI for prioritising wordle words with manageable heuristics to solve a general wordle format game for any particular 
+word as efficiently as possible.
+
+Algorithmically WAIdle uses a maximax model to select word choices that minimize the possible word list to the greatest 
 degree by matching character positions.
 
 Note that WAIdle will only attempt answers that could potentially be correct, rather than the alternative strategy of 
 selecting guesses which will eliminate as many chars as possible to reduce possible answers. At some point, that 
-strategy should be tested, as it may lower the number of guesses in the distribution, but will have less successes with 
+strategy should be tested, as it may lower the number of guesses in the distribution, but will have fewer successes with 
 a low number of guesses (ie, 2 or 3) which is my personally preferred goal.
 
 By default, WAIdle will attribute a value of 1.5 to a character that is in the correct position of a possible answer, 
-and a value of 1 to a character which exists in the word but is in the incorrect position. The intent is to iterate on 
-this heuristic iteratively using a gradient ascent model, testing the system with different heuristics across a random
-subset of the corpus (to minimize processing time) to find more optimal heuristic values.<br>
-Slightly concerned with this approach, it would be a logical step, and would certainly improve performance, but will 
-actively be moving away from a generalized design, as different heuristic values will be found for different initial
-corpuses, eg. when different answer string lengths are selected, or when the initial starting word list is changed.
+and a value of 1 to a character which exists in the word but is in the incorrect position. An iterative gradient ascent 
+model can be used to test the system with different heuristics to find more optimal heuristic ratios.
+
+For the oiginal Wordle corpus of 2309 words, the following distribution can be found for heuristics of 1.5 and 3:
+<img src="Original Wordle Heuristic Results.png">
+In this case, it was found that increasing the ratio of 2.7 and above reduced the number of average guesses for 
+words in the corpus to 3.46 from 3.48. In exchange, this loses out on some impressively low guesses of 2 and 3.
+The effect the ratio has on the number of guesses taken is quite small, since the corpus size is low, impact is minimal.
+At very low ratio values, the average number of guesses is increased by a non insignificant amount.
+
+Note that different heuristic ratios will be found for different initial corpuses, e.g. when different answer 
+string lengths are selected, or when the initial starting word list is changed.
 
 A reinforcement learning algorithm will be implemented as a comparison to the maximax approach, to see if it can gain 
 additional insights, and I think it will provide an educational example of the difference between these styles of 
@@ -49,9 +60,7 @@ waidle.**WaidleCorpus**()
 - Implement heuristic optimization through gradient ascent and iteration
 - Source the daily wordle answer from an API to allow the program to solve the current answer without being manually 
 referred to
-- Include curated Wordle word list as an initial corpus option to improve performance when answering actual wordle games
-  (this reduces the corpus size from ~4200 words to ~2300)
-- If Wordle word list is implemented, include the possibility of excluding previous Wordle answers
+- Include the possibility of excluding previous Wordle answers
 - Finish Readme including usage details
 - Add additional comments to the program for clarity
 - Add further tests to test file to guarantee function
