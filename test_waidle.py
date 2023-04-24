@@ -46,7 +46,7 @@ def test_update_corpus():
     assert "SPACE" in c
     assert "TRACE" in c
     assert "APPLE" not in c
-    c = a.corpus.remove_char_from_corpus("P")
+    c = a.corpus.excess_chars("P", counter=0)
     assert "LEAFY" in c
     assert "TRACE" in c
     assert "SPACE" not in c

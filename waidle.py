@@ -4,10 +4,15 @@ import datetime as dt
 import random
 import copy
 from datetime import datetime
+from requests import get
+import re
+import os
+import matplotlib.pyplot as plt
 
 
 def main():
-    pass
+    w = Waidle()
+    w.solve()
 
 
 def check_char(char, position, word, heuristic=(1, 1.5)):
@@ -37,14 +42,69 @@ def load_word_freq_dict(filename="frequency-alpha-alldicts.txt", chars=5):
     return new_dict
 
 
+def source_wordle_list() -> object:
+    url = "https://www.nytimes.com/games-assets/v2/wordle.1ddd50e23d5bc72353ab.js"
+    r = get(url).text
+    r = re.search(r'zymic",".*?]', r).group()[7:-1]
+    r = r.replace('"', '').split(",")
+    return r
+
+
+def sum_sq(listed, count=False):
+    sumsq = 0
+    words_count = 0
+    for i in list(listed):
+        words_count += i[1]
+        sumsq += i[0] * i[1]
+    if count:
+        return sumsq, words_count
+    return sumsq
+
+
+def plot_test_results(dists, heuristics, title="Comparison of Different Heuristic Values"):
+    if len(dists) == 2:
+        print(dists)
+        avg1, count = sum_sq(dists[0].items(), count=True)
+        avgs = [avg1 / count, sum_sq(dists[1].items()) / count]
+        color = ("blue", "red", "green")
+        fig, (ax1, ax2) = plt.subplots(2, 1, sharex="all")
+        xys_all, max_ax1 = [], []
+        for h, i in enumerate(dists):
+            xys = list(zip(*sorted(list(i.items()))))
+            xys_all.append(xys)
+            xs, ys = xys[0], xys[1]
+            max_ax1.append(max(ys))
+            ax1.plot(xs, ys, label=f"Heuristic Ratio: {heuristics[h]}, Average: {round(avgs[h], 2)}", color=color[h])
+        xs = xys_all[0][0]
+        diffs = [xys_all[0][1][x] - xys_all[1][1][x] for x in range(len(xys_all[0][0]))]
+        ax2.plot(xs, diffs, color=color[2])
+        ax2.plot([xys_all[0][0][0], xys_all[0][0][-1]], [0, 0], color="black")
+        ax2.set_xlim(xys_all[0][0][0], xys_all[0][0][-1])
+        max_y = max((abs(max(diffs)), abs(min(diffs))))
+        ax2.set_ylim(-1 * max_y - 5, max_y + 5)
+        ax2.set_xlabel("Number of Guesses")
+        ax2.set_ylabel("Guess Difference Between Heuristics")
+        ax1.set_ylabel("Number of Words")
+        ax1.grid(which="both")
+        ax2.grid(which="both")
+        ax1.set_ylim(0, max(max_ax1) + max(max_ax1) * 0.05)
+        ax1.legend()
+        fig.suptitle(title)
+        plt.tight_layout()
+        plt.show()
+    else:
+        raise ValueError("Two distributions required for comparison")
+
+
 # For performance, need to adjust this so that a qualification file can be used from default at creation of an object
 # Rather than running prepare corpus on initialization
 class WaidleCorpus:
     # Waidle Corpus object
-    def __init__(self):
+    def __init__(self, verbose=True):
         self.corpus = dict()
+        self.verbose = verbose
 
-    def prepare_corpus(self, word_list=words.words(), chars=5, freq_cutoff=2e-06):
+    def prepare_corpus(self, word_list=words.words(), chars=5, freq_cutoff=2e-06, curate=False):
         # Prepares corpus dictionary from a word list, drawing frequencies from load_word_freq_dict
         frequency_corpus = load_word_freq_dict(chars=chars)
         full_corpus = word_list
@@ -53,6 +113,9 @@ class WaidleCorpus:
             if i in frequency_corpus:
                 if i.isalpha() and len(i) == chars and frequency_corpus[i] > freq_cutoff:
                     self.corpus.update({i: {"score": 0, "match": 0, "exact": 0, "frequency": frequency_corpus[i]}})
+            elif not curate:
+                if i.isalpha() and len(i) == chars:
+                    self.corpus.update({i: {"score": 0, "match": 0, "exact": 0, "frequency": 0}})
 
     # They are not currently used simultaneously, which may imply there could be a better design
     # Needs to be clear, this function only gets used if a char does exist in the answer
@@ -82,7 +145,8 @@ class WaidleCorpus:
         # Each other word in the corpus
         if heuristic[1] <= heuristic[0]:
             raise ValueError("Heuristic is invalid, index 1 must be greater than index 0")
-        print("Evaluating Corpus...")
+        if self.verbose:
+            print("Evaluating Corpus...")
         corpus_dict = dict()
         counter = 0
         for word in self.corpus:
@@ -106,14 +170,15 @@ class WaidleCorpus:
 
             corpus_dict.update({word: {"score": score, "match": match, "exact": exact,
                                        "frequency": self.corpus[word]["frequency"]}})
-            print(f"Completed word {counter} / {len(self.corpus)} - {word}: {score}", self.corpus[word]["frequency"])
+            if self.verbose:
+                print(f"Completed word {counter}/{len(self.corpus)} - {word}: {score}", self.corpus[word]["frequency"])
 
         self.corpus = corpus_dict.copy()
         corpus_sorted = sorted(corpus_dict.items(), key=lambda item: item[1]["score"], reverse=True)
         if save:
             self.save_corpus()
-
-        print("FINISHED.")
+        if self.verbose:
+            print("FINISHED.")
         return corpus_sorted
 
     def save_corpus(self, suffix="Waidle Corpus"):
@@ -133,7 +198,7 @@ class WaidleCorpus:
                                  "Frequency": row[1]["frequency"]})
         print(f"File saved as {filename}.")
 
-    def load_corpus(self, filename):
+    def load_corpus(self, filename, chars=5):
         # Re-loads a qualified corpus for reference to reduce processing time
         corpus = dict()
         with open(filename, 'r') as f:
@@ -142,26 +207,36 @@ class WaidleCorpus:
             for row in reader:
                 corpus.update({row["Word"]: {"score": float(row["Score"]), "match": int(row["Match"]),
                                              "exact": int(row["Exact"]), "frequency": float(row["Frequency"])}})
+        file_word_length = len(list(corpus.keys())[0])
+        if file_word_length != chars:
+            raise ImportError(f"File contains word of length {file_word_length}, not {chars}. Please try a different"
+                              f"file, or a different word.")
         self.corpus = corpus
         return corpus
 
 
 class Waidle:
     # Main Waidle game object
-    def __init__(self, word=None, heuristic=(1, 1.5), chars=5):
+    def __init__(self, word=None, heuristic=(1, 1.5), chars=5, file=None, word_list=source_wordle_list(), verbose=True):
         # Initializes with a WaidleCorpus object. If word is left None, a random word from the corpus is selected.
         # If chars is left as 5, the randomly selected word will be of length 5
         # chars will be ignored if a word is specified
-        self.corpus = WaidleCorpus()
+        self.corpus = WaidleCorpus(verbose=verbose)
         self.chars = chars
         if word is None:
-            self.corpus.prepare_corpus(chars=chars)
-            self.word = random.choice(list(self.corpus.corpus.keys()))
+            if not file:
+                self.corpus.prepare_corpus(chars=chars, word_list=word_list)
+            else:
+                self.corpus.load_corpus(file, chars=chars)
+            self.randomize_word()
             while self.corpus.corpus[self.word]["frequency"] < 60e-06:
                 self.randomize_word()
         else:
             self.word = word.upper()
-            self.corpus.prepare_corpus(chars=len(self.word))
+            if not file:
+                self.corpus.prepare_corpus(chars=len(self.word), word_list=word_list)
+            else:
+                self.corpus.load_corpus(file, chars=len(self.word))
             if self.word not in self.corpus.corpus:
                 raise KeyError("Word not recognized as valid word")
         self.heuristic = heuristic
@@ -212,7 +287,7 @@ class Waidle:
                                                                        item[1]["frequency"]), reverse=True)
         return ordered[0:number]
 
-    def solve(self, starting_qualification_file="Waidle Corpus (4203 20230413).txt"):
+    def solve(self, starting_qualification_file="Waidle Corpus (2309 20230424).txt"):
         # Solves a game by guesses recommended guesses until the correct guess is found
         if starting_qualification_file:
             self.corpus.load_corpus(starting_qualification_file)
@@ -257,7 +332,7 @@ class Waidle:
             guess = input("Enter your guess: ").upper()
         return guess
 
-    def test_setup(self):
+    def test_setup(self, plot=False):
         # Tests a game of WAIdle for each word in a corpus, to assess effectiveness of the algorithm
         # Takes a long time to perform, especially with a larger corpus: O(n**2)
         word_list = self.corpus.corpus.keys()
@@ -265,9 +340,10 @@ class Waidle:
         distribution = dict()
         counter = 0
         total = len(word_list)
+        heuristic_backup = copy.copy(self.heuristic)
         for word in word_list:
             counter += 1
-            b = Waidle(word)
+            b = Waidle(word, heuristic=heuristic_backup, file="Waidle Corpus (2309 20230424).txt", verbose=False)
             c = b.solve()
             if c in distribution:
                 distribution[c] += 1
@@ -275,7 +351,25 @@ class Waidle:
                 distribution.update({c: 1})
             results.update({word: c})
             print(f"\nCompleted word {counter} / {total}")
-        return results, distribution
+
+        avg = sum_sq(distribution.items()) / len(self.corpus.corpus)
+        print(f"Average number of guesses: {avg}")
+
+        out_file = "results_file.csv"
+        if out_file not in os.listdir():
+            guess_headers = ""
+            for x in range(1, 12):
+                guess_headers += f"Guess {x},"
+            with open(out_file, 'w') as f:
+                f.write(f"Char Number,Corpus Size,Match,Exact,Average Score,{guess_headers}\n")
+        with open(out_file, 'a') as f:
+            f.write(f"{len(self.word)},{len(self.corpus.corpus)},{self.heuristic[0]},{self.heuristic[1]},{avg}")
+            dist_numbers = sorted(list(distribution.items()))
+            for i in dist_numbers:
+                f.write(f",{i[1]}")
+            f.write("\n")
+
+        return results, distribution, avg
 
 
 class QWaidle:
@@ -336,12 +430,13 @@ class QWaidle:
         progress_increment = n / 100
         percent = 0
         corp = copy.copy(self.game.corpus)
+        t0 = datetime.now()
+        print("Training Started...")
         for x in range(n):
             c = 1
             state = self.sort_state(self.game.corpus.corpus)
             self.create_new_state(state)
             guess = self.choose_action(state)
-
             while not self.game.check_guess(guess, printout=False):
                 c += 1
                 old_state = state
@@ -361,27 +456,33 @@ class QWaidle:
             self.update(state, guess, new_state, reward)
             self.game.corpus = copy.copy(corp)
             self.game.randomize_word()
-            if n % progress_increment == 0:
+            if x % progress_increment == 0:
                 percent += 1
-                print(f"Training {x} / n - {percent}% Complete")
-
-    def play(self):
-        def recommend():
-            p = list(self.state_dict[self.sort_state(self.game.corpus.corpus)].items())
-            return max(p, key=lambda item: item[1])
+                print(f"Training {x} / {n} - {percent}% Complete")
+        td = datetime.now() - t0
+        print(f"Training completed in {td}")
 
 
 if __name__ == "__main__":
     main()
-    #a = Waidle("KAYAK")
-    #a.solve()
+    a = Waidle(heuristic=(1, 2.68))
+    a.corpus.qualify_corpus(heuristic=(1, 2.68), save=True)
+    r, d, av = a.test_setup()
+
+    a = Waidle(heuristic=(1, 2.69))
+    a.corpus.qualify_corpus(heuristic=(1, 2.69), save=True)
+    r2, d2, av2 = a.test_setup()
+
+    # r, d = a.test_setup()
+
+    # y = zip(*list(sorted(d.items())))
+
+    """
     a = QWaidle()
-    t0 = datetime.now()
-    print("Training...")
-    a.train(2000000)
+
+    a.train(10000)
     print("DONE")
-    t1 = datetime.now()
-    print(t1 - t0)
     b = list(sorted(a.state_dict))
     c = a.state_dict[b[1]].items()
     sorted(c, key=lambda item: item[1])
+    """
