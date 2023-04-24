@@ -11,8 +11,23 @@ import matplotlib.pyplot as plt
 
 
 def main():
-    w = Waidle()
-    w.solve()
+    short_word_list = sorted([i for i in words.words() if len(i) == 5])
+    interval = len(short_word_list) // 50
+    short_word_list = short_word_list[::interval]
+    print(short_word_list)
+    w = Waidle(word_list=short_word_list)
+    w.corpus.qualify_corpus(save=True)
+    w.randomize_word()
+    # w.solve(starting_qualification_file="Waidle Corpus (35 20230424).txt")
+    q = QWaidle(game=w)
+    q.train(1000000)
+    b = list(sorted(q.state_dict))
+    c = q.state_dict[b[2]].items()
+    s = sorted(c, key=lambda item: item[1])
+    counter = 0
+    for i in s:
+        counter += 1
+        print(counter, i)
 
 
 def check_char(char, position, word, heuristic=(1, 1.5)):
@@ -43,6 +58,9 @@ def load_word_freq_dict(filename="frequency-alpha-alldicts.txt", chars=5):
 
 
 def source_wordle_list() -> object:
+    # Scrapes officially used wordle word list from the wordle page
+    # This appears as a long array of acceptable words for entry in the game wordle, which is ordered
+    # This array then becomes unordered after the word "zymic", from this index forward, the array is potential answers.
     url = "https://www.nytimes.com/games-assets/v2/wordle.1ddd50e23d5bc72353ab.js"
     r = get(url).text
     r = re.search(r'zymic",".*?]', r).group()[7:-1]
@@ -51,6 +69,8 @@ def source_wordle_list() -> object:
 
 
 def sum_sq(listed, count=False):
+    # Calculates the sum of squares of a tuple of two other tuples of equal length
+    # Note that in this case, these are practically the number of words that took x guesses
     sumsq = 0
     words_count = 0
     for i in list(listed):
@@ -62,6 +82,7 @@ def sum_sq(listed, count=False):
 
 
 def plot_test_results(dists, heuristics, title="Comparison of Different Heuristic Values"):
+    # Plots two differing distributions and their difference, rsulting from differently selected heuristic values
     if len(dists) == 2:
         print(dists)
         avg1, count = sum_sq(dists[0].items(), count=True)
@@ -332,7 +353,7 @@ class Waidle:
             guess = input("Enter your guess: ").upper()
         return guess
 
-    def test_setup(self, plot=False):
+    def test_setup(self):
         # Tests a game of WAIdle for each word in a corpus, to assess effectiveness of the algorithm
         # Takes a long time to perform, especially with a larger corpus: O(n**2)
         word_list = self.corpus.corpus.keys()
@@ -449,7 +470,7 @@ class QWaidle:
 
             new_state = self.sort_state(self.game.corpus.corpus)
             self.create_new_state(new_state)
-            if c <= 6:
+            if c <= 2:
                 reward = 1
             else:
                 reward = -1
@@ -465,24 +486,3 @@ class QWaidle:
 
 if __name__ == "__main__":
     main()
-    a = Waidle(heuristic=(1, 2.68))
-    a.corpus.qualify_corpus(heuristic=(1, 2.68), save=True)
-    r, d, av = a.test_setup()
-
-    a = Waidle(heuristic=(1, 2.69))
-    a.corpus.qualify_corpus(heuristic=(1, 2.69), save=True)
-    r2, d2, av2 = a.test_setup()
-
-    # r, d = a.test_setup()
-
-    # y = zip(*list(sorted(d.items())))
-
-    """
-    a = QWaidle()
-
-    a.train(10000)
-    print("DONE")
-    b = list(sorted(a.state_dict))
-    c = a.state_dict[b[1]].items()
-    sorted(c, key=lambda item: item[1])
-    """
