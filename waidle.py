@@ -8,26 +8,16 @@ from requests import get
 import re
 import os
 import matplotlib.pyplot as plt
+import sys
 
 
 def main():
-    short_word_list = sorted([i for i in words.words() if len(i) == 5])
-    interval = len(short_word_list) // 50
-    short_word_list = short_word_list[::interval]
-    print(short_word_list)
-    w = Waidle(word_list=short_word_list)
-    w.corpus.qualify_corpus(save=True)
-    w.randomize_word()
-    # w.solve(starting_qualification_file="Waidle Corpus (35 20230424).txt")
-    q = QWaidle(game=w)
-    q.train(1000000)
-    b = list(sorted(q.state_dict))
-    c = q.state_dict[b[2]].items()
-    s = sorted(c, key=lambda item: item[1])
-    counter = 0
-    for i in s:
-        counter += 1
-        print(counter, i)
+    if len(sys.argv) > 1:
+        if sys.argv[1].lower() == "solve":
+            Waidle(sys.argv[2]).solve()
+        elif sys.argv[1].lower() == "play":
+            Waidle().play()
+    return None
 
 
 def check_char(char, position, word, heuristic=(1, 1.5)):
@@ -82,7 +72,8 @@ def sum_sq(listed, count=False):
 
 
 def plot_test_results(dists, heuristics, title="Comparison of Different Heuristic Values"):
-    # Plots two differing distributions and their difference, rsulting from differently selected heuristic values
+    # Plots two differing distributions and their difference, resulting from differently selected heuristic values
+    # Dists are sourced from Waidle(heuristic=[x,y]).test_setup[1]
     if len(dists) == 2:
         print(dists)
         avg1, count = sum_sq(dists[0].items(), count=True)
@@ -117,13 +108,12 @@ def plot_test_results(dists, heuristics, title="Comparison of Different Heuristi
         raise ValueError("Two distributions required for comparison")
 
 
-# For performance, need to adjust this so that a qualification file can be used from default at creation of an object
-# Rather than running prepare corpus on initialization
 class WaidleCorpus:
     # Waidle Corpus object
-    def __init__(self, verbose=True):
+    def __init__(self, verbose=True, heuristic=(1, 1.5)):
         self.corpus = dict()
         self.verbose = verbose
+        self.heuristic = heuristic
 
     def prepare_corpus(self, word_list=words.words(), chars=5, freq_cutoff=2e-06, curate=False):
         # Prepares corpus dictionary from a word list, drawing frequencies from load_word_freq_dict
@@ -160,11 +150,11 @@ class WaidleCorpus:
         # Used in the instance of a word guess with multiple of the same char finding the number total
         self.corpus = {word: self.corpus[word] for word in self.corpus if counter == word.count(char)}
 
-    def qualify_corpus(self, heuristic=(1, 1.5), save=False):
+    def qualify_corpus(self, save=False):
         # Qualifies entire corpus based on maximax algorithm
         # Checks every word in the corpus, and assigns it a score based on shared characters/positions with...
         # Each other word in the corpus
-        if heuristic[1] <= heuristic[0]:
+        if self.heuristic[1] <= self.heuristic[0]:
             raise ValueError("Heuristic is invalid, index 1 must be greater than index 0")
         if self.verbose:
             print("Evaluating Corpus...")
@@ -176,17 +166,17 @@ class WaidleCorpus:
             for test_word in self.corpus:
                 checked_chars = create_alphabet_dict()
                 for position, char in enumerate(word):
-                    checked = check_char(char, position, test_word, heuristic)
+                    checked = check_char(char, position, test_word, self.heuristic)
                     if checked:
                         if test_word.count(char) > checked_chars[char][1]:
                             match += 1
-                            if checked == heuristic[1]:
+                            if checked == self.heuristic[1]:
                                 exact += 1
                             score += checked
                             checked_chars[char][1] += 1
                             checked_chars[char][0] = checked
                         elif checked > checked_chars[char][0]:
-                            score = score - heuristic[0] + checked
+                            score = score - self.heuristic[0] + checked
                             exact += 1
 
             corpus_dict.update({word: {"score": score, "match": match, "exact": exact,
@@ -242,7 +232,8 @@ class Waidle:
         # Initializes with a WaidleCorpus object. If word is left None, a random word from the corpus is selected.
         # If chars is left as 5, the randomly selected word will be of length 5
         # chars will be ignored if a word is specified
-        self.corpus = WaidleCorpus(verbose=verbose)
+        self.heuristic = heuristic
+        self.corpus = WaidleCorpus(verbose=verbose, heuristic=heuristic)
         self.chars = chars
         if word is None:
             if not file:
@@ -250,8 +241,6 @@ class Waidle:
             else:
                 self.corpus.load_corpus(file, chars=chars)
             self.randomize_word()
-            while self.corpus.corpus[self.word]["frequency"] < 60e-06:
-                self.randomize_word()
         else:
             self.word = word.upper()
             if not file:
@@ -260,7 +249,6 @@ class Waidle:
                 self.corpus.load_corpus(file, chars=len(self.word))
             if self.word not in self.corpus.corpus:
                 raise KeyError("Word not recognized as valid word")
-        self.heuristic = heuristic
 
     def randomize_word(self):
         self.word = random.choice(list(self.corpus.corpus.keys()))
@@ -395,12 +383,13 @@ class Waidle:
 
 class QWaidle:
     # Starting to assemble the beones of a reinforcment learning approach to solving a game
-    def __init__(self, game=Waidle(), alpha=0.5, epsilon=0.3, gamma=0.1):
+    def __init__(self, game=Waidle(), alpha=0.5, epsilon=0.1, gamma=0.1):
         self.game = game
         self.alpha = alpha
         self.epsilon = epsilon
         self.gamma = gamma
         self.state_dict = dict()
+        self.guess_history = []
         self.create_new_state(self.sort_state(self.game.corpus.corpus))
 
     @staticmethod
@@ -470,7 +459,9 @@ class QWaidle:
 
             new_state = self.sort_state(self.game.corpus.corpus)
             self.create_new_state(new_state)
-            if c <= 2:
+            self.guess_history.append(c)
+            average_guess = sum(self.guess_history) / len(self.guess_history)
+            if c <= average_guess:
                 reward = 1
             else:
                 reward = -1
@@ -479,7 +470,8 @@ class QWaidle:
             self.game.randomize_word()
             if x % progress_increment == 0:
                 percent += 1
-                print(f"Training {x} / {n} - {percent}% Complete")
+
+                print(f"Training {x} / {n} - {percent}% Complete, Avg. Guess: {average_guess}")
         td = datetime.now() - t0
         print(f"Training completed in {td}")
 
